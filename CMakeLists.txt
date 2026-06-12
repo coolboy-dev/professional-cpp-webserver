@@ -18,13 +18,13 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang
     else()
         add_compile_options(-Wall -Wextra -Wpedantic -O3 -march=native)
     endif()
-    
+
     if(ENABLE_ASAN)
         add_compile_options(-fsanitize=address -fsanitize=undefined)
         add_link_options(-fsanitize=address -fsanitize=undefined)
         set(CMAKE_BUILD_TYPE Debug)
     endif()
-    
+
     if(ENABLE_TSAN)
         add_compile_options(-fsanitize=thread)
         add_link_options(-fsanitize=thread)
@@ -33,10 +33,10 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang
 endif()
 
 # Include directories
-include_directories(include)
+include_directories(headers)
 
 # Source files
-file(GLOB_RECURSE SOURCES "src/*.cpp")
+file(GLOB_RECURSE SOURCES "source/*.cpp")
 
 # Create executable
 add_executable(webserver ${SOURCES})
@@ -50,11 +50,11 @@ option(BUILD_TESTS "Build unit tests" OFF)
 if(BUILD_TESTS)
     find_package(GTest REQUIRED)
     enable_testing()
-    
-    file(GLOB_RECURSE TEST_SOURCES "tests/*.cpp")
+
+    file(GLOB_RECURSE TEST_SOURCES "spec/*.cpp")
     add_executable(webserver_tests ${TEST_SOURCES} ${SOURCES})
     target_link_libraries(webserver_tests GTest::gtest_main Threads::Threads)
-    
+
     include(GoogleTest)
     gtest_discover_tests(webserver_tests)
 endif()

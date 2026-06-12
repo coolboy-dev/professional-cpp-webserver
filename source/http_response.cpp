@@ -5,31 +5,31 @@
 #include <algorithm>
 #include <filesystem>
 
-HttpResponse::HttpResponse(HttpStatus status) : status_(status) {
+HttpResponse::HttpResponse(HttpStatus status) : m_http_status(status) {
     set_default_headers();
 }
 
 void HttpResponse::set_status(HttpStatus status) {
-    status_ = status;
+    m_http_status = status;
 }
 
 void HttpResponse::set_header(const std::string& name, const std::string& value) {
-    headers_[name] = value;
+    m_response_headers[name] = value;
 }
 
 void HttpResponse::set_body(const std::string& body) {
-    body_ = body;
-    set_content_length(body_.size());
+    m_response_body = body;
+    set_content_length(m_response_body.size());
 }
 
 void HttpResponse::set_body(const std::vector<char>& body) {
-    body_.assign(body.begin(), body.end());
-    set_content_length(body_.size());
+    m_response_body.assign(body.begin(), body.end());
+    set_content_length(m_response_body.size());
 }
 
 void HttpResponse::append_body(const std::string& data) {
-    body_ += data;
-    set_content_length(body_.size());
+    m_response_body += data;
+    set_content_length(m_response_body.size());
 }
 
 void HttpResponse::set_content_type(const std::string& content_type) {
@@ -62,7 +62,7 @@ void HttpResponse::set_default_headers() {
 std::string HttpResponse::format_date() const {
     auto now = std::chrono::system_clock::now();
     auto time_t = std::chrono::system_clock::to_time_t(now);
-    
+
     std::stringstream ss;
     ss << std::put_time(std::gmtime(&time_t), "%a, %d %b %Y %H:%M:%S GMT");
     return ss.str();
@@ -70,16 +70,16 @@ std::string HttpResponse::format_date() const {
 
 std::string HttpResponse::to_string() const {
     std::ostringstream response;
-    
-    response << version_ << " " << static_cast<int>(status_) << " " << get_status_text(status_) << "\r\n";
-    
-    for (const auto& [name, value] : headers_) {
+
+    response << m_http_version << " " << static_cast<int>(m_http_status) << " " << get_status_text(m_http_status) << "\r\n";
+
+    for (const auto& [name, value] : m_response_headers) {
         response << name << ": " << value << "\r\n";
     }
-    
+
     response << "\r\n";
-    response << body_;
-    
+    response << m_response_body;
+
     return response.str();
 }
 
@@ -117,10 +117,10 @@ std::string HttpResponse::get_mime_type(const std::string& file_extension) {
         {".ttf", "font/ttf"},
         {".otf", "font/otf"}
     };
-    
+
     std::string ext = file_extension;
     std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-    
+
     auto it = mime_types.find(ext);
     return (it != mime_types.end()) ? it->second : "application/octet-stream";
 }
@@ -148,10 +148,10 @@ std::string HttpResponse::get_status_text(HttpStatus status) {
 
 HttpResponse HttpResponse::create_error_response(HttpStatus status, const std::string& message) {
     HttpResponse response(status);
-    
+
     std::string status_text = get_status_text(status);
     std::string error_message = message.empty() ? status_text : message;
-    
+
     std::ostringstream body;
     body << "<!DOCTYPE html>\n";
     body << "<html><head><title>" << static_cast<int>(status) << " " << status_text << "</title></head>\n";
@@ -161,21 +161,21 @@ HttpResponse HttpResponse::create_error_response(HttpStatus status, const std::s
     body << "<hr>\n";
     body << "<p><em>MultithreadedWebServer/1.0</em></p>\n";
     body << "</body></html>\n";
-    
+
     response.set_body(body.str());
     response.set_content_type("text/html; charset=utf-8");
-    
+
     return response;
 }
 
 HttpResponse HttpResponse::create_file_response(const std::string& file_path, const std::vector<char>& file_content) {
     HttpResponse response(HttpStatus::OK);
-    
+
     std::string extension = std::filesystem::path(file_path).extension().string();
     std::string mime_type = get_mime_type(extension);
-    
+
     response.set_body(file_content);
     response.set_content_type(mime_type);
-    
+
     return response;
 }

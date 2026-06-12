@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Multithreaded Web Server | High Performance</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+      body { font-family: 'Inter', sans-serif; }
+      .gradient-bg { background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); }
+    </style>
+  </head>
+  <body class="bg-slate-50 text-slate-900">
+    <!-- Navigation -->
+    <nav class="bg-white border-b border-slate-200 sticky top-0 z-50">
+      <div class="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white">
+            <i class="fas fa-server"></i>
+          </div>
+          <span class="font-bold text-xl tracking-tight">CppServer<span class="text-indigo-600">.io</span></span>
+        </div>
+        <div class="hidden md:flex items-center gap-8 text-sm font-medium text-slate-600">
+          <a href="#features" class="hover:text-indigo-600 transition-colors">Features</a>
+          <a href="#benchmarks" class="hover:text-indigo-600 transition-colors">Benchmarks</a>
+          <a href="#api" class="hover:text-indigo-600 transition-colors">API</a>
+          <a href="https://github.com/swe-robertkibet/multithreaded-webserver-cpp" target="_blank" class="bg-indigo-600 text-white px-4 py-2 rounded-full hover:bg-indigo-700 transition-all">
+            <i class="fab fa-github mr-2"></i>GitHub
+          </a>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <header class="gradient-bg text-white py-20 px-4 text-center">
+      <div class="max-w-4xl mx-auto">
+        <h1 class="text-5xl md:text-6xl font-extrabold mb-6 leading-tight">
+          High-Performance <span class="text-indigo-200">C++</span> Web Server
+        </h1>
+        <p class="text-xl text-indigo-100 mb-10 max-w-2xl mx-auto">
+          A production-ready, event-driven HTTP server featuring epoll-based I/O,
+          intelligent LRU caching, and a scalable thread pool architecture.
+        </p>
+        <div class="flex flex-wrap justify-center gap-4">
+          <a href="#api" class="bg-white text-indigo-600 px-8 py-3 rounded-lg font-semibold hover:bg-indigo-50 transition-all shadow-lg">
+            Explore API
+          </a>
+          <a href="https://github.com/swe-robertkibet/multithreaded-webserver-cpp" target="_blank" class="bg-indigo-500 text-white px-8 py-3 rounded-lg font-semibold hover:bg-indigo-400 transition-all shadow-lg">
+            View Source
+          </a>
+        </div>
+      </div>
+    </header>
+
+    <main class="max-w-6xl mx-auto px-4 py-16">
+      <!-- Live Dashboard -->
+      <section class="mb-20">
+        <div class="flex items-center gap-3 mb-8">
+          <div class="w-2 h-8 bg-indigo-600 rounded-full"></div>
+          <h2 class="text-3xl font-bold">Real-time Health Dashboard</h2>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6" id="dashboard">
+          <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+            <div class="text-slate-500 text-sm font-medium mb-2">Active Connections</div>
+            <div class="text-3xl font-bold text-slate-900" id="stat-connections">--</div>
+          </div>
+          <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+            <div class="text-slate-500 text-sm font-medium mb-2">Thread Pool Queue</div>
+            <div class="text-3xl font-bold text-slate-900" id="stat-queue">--</div>
+          </div>
+          <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+            <div class="text-slate-500 text-sm font-medium mb-2">Cache Hit Ratio</div>
+            <div class="text-3xl font-bold text-slate-900" id="stat-hit-ratio">--</div>
+          </div>
+          <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+            <div class="text-slate-500 text-sm font-medium mb-2">Cache Memory</div>
+            <div class="text-3xl font-bold text-slate-900" id="stat-cache-mem">--</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Features Grid -->
+      <section id="features" class="mb-20">
+        <div class="flex items-center gap-3 mb-8">
+          <div class="w-2 h-8 bg-indigo-600 rounded-full"></div>
+          <h2 class="text-3xl font-bold">Core Architecture</h2>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div class="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 hover:border-indigo-300 transition-all group">
+            <div class="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-xl flex items-center justify-center mb-6 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+              <i class="fas fa-bolt"></i>
+            </div>
+            <h3 class="text-xl font-bold mb-3">Event-Driven I/O</h3>
+            <p class="text-slate-600 text-sm leading-relaxed">
+              Leverages Linux <code>epoll</code> for non-blocking I/O multiplexing, allowing thousands of concurrent connections with minimal overhead.
+            </p>
+          </div>
+          <div class="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 hover:border-indigo-300 transition-all group">
+            <div class="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-xl flex items-center justify-center mb-6 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+              <i class="fas fa-layer-group"></i>
+            </div>
+            <h3 class="text-xl font-bold mb-3">Scale-Out Threading</h3>
+            <p class="text-slate-600 text-sm leading-relaxed">
+              Dynamic thread pool separates request acceptance from processing, maximizing CPU utilization across all available cores.
+            </p>
+          </div>
+          <div class="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 hover:border-indigo-300 transition-all group">
+            <div class="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-xl flex items-center justify-center mb-6 group-hover:bg-indigo-600 group-s-white transition-colors">
+              <i class="fas fa-database"></i>
+            </div>
+            <h3 class="text-xl font-bold mb-3">Intelligent Caching</h3>
+            <p class="text-slate-600 text-sm leading-relaxed">
+              Embedded LRU cache with TTL expiration reduces disk I/O and provides sub-millisecond response times for hot assets.
+            </p>
+          </div>
+          <div class="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 hover:border-indigo-300 transition-all group">
+            <div class="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-xl flex items-center justify-center mb-6 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+              <i class="fas fa-shield-alt"></i>
+            </div>
+            <h3 class="text- laxl font-bold mb-3">Hardened Security</h3>
+            <p class="text-slate- la600 text-sm leading-relaxed">
+              Integrated path traversal protection, token-bucket rate limiting, and strict MIME type validation.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- API Section -->
+      <section id="api" class="mb-20 bg-slate-900 text-white p-8 md:p-12 rounded-3xl shadow-2xl">
+        <div class="flex items-center gap-3 mb-8">
+          <div class="w-2 h-8 bg-indigo-500 rounded-full"></div>
+          <h2 class="text-3xl font-bold">Testing Interface</h2>
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-12">
+          <div>
+            <p class="text-slate-400 mb-6">Try these endpoints to explore server capabilities:</p>
+            <div class="space-y-4">
+              <div class="flex items-center justify-between p-4 bg-slate-800 rounded-xl border border-slate-700 hover:border-indigo-500 transition-all group">
+                <div class="flex items-center gap-3">
+                  <span class="text-xs font-bold bg-green-500 text-white px-2 py-1 rounded">GET</span>
+                  <code class="text-indigo-300 font-mono">/</code>
+                </div>
+                <a href="/" class="text-sm text-slate-400 hover:text-white transition-colors underline">Visit Home</a>
+              </div>
+              <div class="flex items-center justify-between p-4 bg-slate-800 rounded-xl border border-slate-700 hover:border-indigo-500 transition-all group">
+                <div class="flex items-center gap-3">
+                  <span class="text-xs font-bold bg-green-500 text-white px-2 py-1 rounded">GET</span>
+                  <code class="text-indigo-300 font-mono">/test.html</code>
+                </div>
+                <a href="/test.html" class="text-sm text-slate-400 hover:text-white transition-colors underline">Sample Page</a>
+              </div>
+              <div class="flex items-center justify-between p-4 bg-slate-800 rounded-xl border border la-slate-700 hover:border-indigo-500 transition-all group">
+                <div class="flex items-center gap-3">
+                  <span class="text-xs font-bold bg-blue-500 text-white px-2 py-1 rounded">GET</span>
+                  <code class="text-indigo-300 font-mono">/api/info</code>
+                </div>
+                <a href="/api/info" class="text-sm text-slate-400 hover:text-white transition-colors underline">Server Stats</a>
+              </div>
+              <div class="flex items-center justify-between p-4 bg-slate-800 rounded-xl border border-slate-700 hover:border-indigo-500 transition-all group">
+                <div class="flex items-center gap-3">
+                  <span class="text-xs font-bold bg-green-500 text-white px-2 py-1 rounded">GET</span>
+                  <code class="text-indigo-300 font-mono">/files/</code>
+                </div>
+                <a href="/files/" class="text-sm text-slate-400 hover:text-white transition-colors underline">Directory</a>
+              </div>
+            </div>
+          </div>
+          <div class="bg-slate-800 p-6 rounded-2xl border border-slate-700">
+            <h4 class="text-sm font-bold text-slate-400 uppercase mb-4">Server Response</h4>
+            <pre class="text-xs font-mono text-indigo-300 overflow-x-auto p-4 bg-slate-900 rounded-lg" id="api-response">
+            // Request a resource to see the response here...
+            </pre>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="bg-white border-t border-slate-200 py-12 px-4 text-center">
+      <div class="max-w-6xl mx-auto">
+        <p class="text-slate-500 text-sm">
+          &copy; 2026 CppServer.io. Built with modern C++17 and high-performance systems programming.
+        </p>
+      </div>
+    </footer>
+
+    <script>
+      async function updateDashboard() {
+        try {
+          const res = await fetch('/api/info');
+          const data = await res.json();
+
+          document.getElementById('stat-connections').textContent = data.active_connections;
+          document.getElementById('stat-queue').textContent = data.queue_size;
+          document.getElementById('stat-hit-ratio').textContent = data.cache.hit_ratio_percent + '%';
+          document.getElementById('stat-cache-mem').textContent = (data.cache.memory_usage_bytes / 1024 / 1024).toFixed(2) + ' MB';
+        } catch (e) {
+          console.error('Dashboard update failed', e);
+        }
+      }
+
+      setInterval(updateDashboard, 2000);
+      updateDashboard();
+    </script>
+  </body>
+</html>

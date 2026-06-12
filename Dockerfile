@@ -43,12 +43,12 @@ RUN apt-get update && apt-get install -y \
 RUN groupadd -r webserver && useradd -r -g webserver webserver
 
 # Create directories
-RUN mkdir -p /app/public /app/logs && \
+RUN mkdir -p /app/webroot /app/benchmarks && \
     chown -R webserver:webserver /app
 
 # Copy binary and public files from builder stage
 COPY --from=builder /build/build/bin/webserver /app/
-COPY --from=builder /build/public /app/public/
+COPY --from=builder /build/webroot /app/webroot/
 COPY --from=builder /build/config.json /app/
 
 # Set proper permissions
@@ -84,8 +84,8 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy scripts
-COPY scripts/ /build/scripts/
-RUN chmod +x /build/scripts/*.sh
+COPY bin/ /build/bin/
+RUN chmod +x /build/bin/*.sh
 
 # Set working directory
 WORKDIR /build

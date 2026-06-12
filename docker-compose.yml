@@ -10,8 +10,8 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./public:/app/public:ro
-      - ./logs:/app/logs
+      - ./webroot:/app/webroot:ro
+      - ./benchmarks:/app/benchmarks
       - ./config.json:/app/config.json:ro
     restart: unless-stopped
     healthcheck:
@@ -37,7 +37,7 @@ services:
       - "8081:8081"  # Alternative port for testing
     volumes:
       - .:/build
-      - ./logs:/build/logs
+      - ./benchmarks:/build/benchmarks
     working_dir: /build
     tty: true
     stdin_open: true
@@ -53,7 +53,7 @@ services:
     ports:
       - "80:80"
     volumes:
-      - ./public:/usr/share/nginx/html:ro
+      - ./webroot:/usr/share/nginx/html:ro
       - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro
     networks:
       - webserver_network

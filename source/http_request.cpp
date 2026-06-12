@@ -5,22 +5,22 @@
 
 HttpRequest HttpRequest::parse(const std::string& raw_request) {
     HttpRequest request;
-    
+
     if (raw_request.empty()) {
         return request;
     }
-    
+
     std::istringstream stream(raw_request);
     std::string line;
     bool first_line = true;
     bool headers_done = false;
     std::string body;
-    
+
     while (std::getline(stream, line)) {
         if (!line.empty() && line.back() == '\r') {
             line.pop_back();
         }
-        
+
         if (first_line) {
             request.parse_request_line(line);
             first_line = false;
@@ -37,36 +37,36 @@ HttpRequest HttpRequest::parse(const std::string& raw_request) {
             body += line;
         }
     }
-    
-    request.body_ = body;
+
+    request.m_request_body = body;
     request.parse_query_string();
-    request.valid_ = request.is_request_valid();
-    
+    request.m_is_valid = request.is_request_valid();
+
     return request;
 }
 
 void HttpRequest::parse_request_line(const std::string& line) {
     std::istringstream stream(line);
     std::string method_str, path_with_query, version;
-    
+
     if (!(stream >> method_str >> path_with_query >> version)) {
         return;
     }
-    
-    method_ = string_to_method(method_str);
-    version_ = version;
-    
+
+    m_http_method = string_to_method(method_str);
+    m_http_version = version;
+
     //Spllit path and query string
     size_t query_pos = path_with_query.find('?');
     if (query_pos != std::string::npos) {
-        path_ = path_with_query.substr(0, query_pos);
-        query_string_ = path_with_query.substr(query_pos + 1);
+        m_request_path = path_with_query.substr(0, query_pos);
+        m_query_string = path_with_query.substr(query_pos + 1);
     } else {
-        path_ = path_with_query;
+        m_request_path = path_with_query;
     }
-    
+
     // URL decode the path
-    path_ = url_decode(path_);
+    m_request_path = url_decode(m_request_path);
 }
 
 void HttpRequest::parse_header_line(const std::string& line) {
@@ -74,37 +74,37 @@ void HttpRequest::parse_header_line(const std::string& line) {
     if (colon_pos == std::string::npos) {
         return;
     }
-    
+
     std::string name = line.substr(0, colon_pos);
     std::string value = line.substr(colon_pos + 1);
-    
+
     //Trim whitespace
     name.erase(name.find_last_not_of(" \t") + 1);
     value.erase(0, value.find_first_not_of(" \t"));
     value.erase(value.find_last_not_of(" \t") + 1);
-    
+
     //Convert header name to lowercase for case-insensitive lookup
     std::transform(name.begin(), name.end(), name.begin(), ::tolower);
-    
-    headers_[name] = value;
+
+    m_headers[name] = value;
 }
 
 void HttpRequest::parse_query_string() {
-    if (query_string_.empty()) {
+    if (m_query_string.empty()) {
         return;
     }
-    
-    std::istringstream stream(query_string_);
+
+    std::istringstream stream(m_query_string);
     std::string pair;
-    
+
     while (std::getline(stream, pair, '&')) {
         size_t eq_pos = pair.find('=');
         if (eq_pos != std::string::npos) {
             std::string key = url_decode(pair.substr(0, eq_pos));
             std::string value = url_decode(pair.substr(eq_pos + 1));
-            query_params_[key] = value;
+            m_query_parameters[key] = value;
         } else {
-            query_params_[url_decode(pair)] = "";
+            m_query_parameters[url_decode(pair)] = "";
         }
     }
 }
@@ -112,7 +112,7 @@ void HttpRequest::parse_query_string() {
 std::string HttpRequest::url_decode(const std::string& str) {
     std::string result;
     result.reserve(str.length());
-    
+
     for (size_t i = 0; i < str.length(); ++i) {
         if (str[i] == '%' && i + 2 < str.length()) {
             unsigned int hex_value;
@@ -128,35 +128,35 @@ std::string HttpRequest::url_decode(const std::string& str) {
             result += str[i];
         }
     }
-    
+
     return result;
 }
 
 std::string HttpRequest::get_header(const std::string& name) const {
     std::string lower_name = name;
     std::transform(lower_name.begin(), lower_name.end(), lower_name.begin(), ::tolower);
-    
-    auto it = headers_.find(lower_name);
-    return (it != headers_.end()) ? it->second : "";
+
+    auto it = m_headers.find(lower_name);
+    return (it != m_headers.end()) ? it->second : "";
 }
 
 bool HttpRequest::has_header(const std::string& name) const {
     std::string lower_name = name;
     std::transform(lower_name.begin(), lower_name.end(), lower_name.begin(), ::tolower);
-    
-    return headers_.find(lower_name) != headers_.end();
+
+    return m_headers.find(lower_name) != m_headers.end();
 }
 
 std::string HttpRequest::get_query_param(const std::string& name) const {
-    auto it = query_params_.find(name);
-    return (it != query_params_.end()) ? it->second : "";
+    auto it = m_query_parameters.find(name);
+    return (it != m_query_parameters.end()) ? it->second : "";
 }
 
 bool HttpRequest::is_keep_alive() const {
     std::string connection = get_header("connection");
     std::transform(connection.begin(), connection.end(), connection.begin(), ::tolower);
-    
-    if (version_ == "HTTP/1.1") {
+
+    if (m_http_version == "HTTP/1.1") {
         return connection != "close";
     } else {
         return connection == "keep-alive";
@@ -182,42 +182,42 @@ HttpMethod HttpRequest::string_to_method(const std::string& method_str) {
     if (method_str == "DELETE")  return HttpMethod::DELETE;
     if (method_str == "HEAD")    return HttpMethod::HEAD;
     if (method_str == "OPTIONS") return HttpMethod::OPTIONS;
-    
+
     return HttpMethod::UNKNOWN;
 }
 
 bool HttpRequest::is_request_valid() const {
-    if (method_ == HttpMethod::UNKNOWN) {
+    if (m_http_method == HttpMethod::UNKNOWN) {
         return false;
     }
-    
-    if (path_.empty() || path_[0] != '/') {
+
+    if (m_request_path.empty() || m_request_path[0] != '/') {
         return false;
     }
-    
-    if (version_ != "HTTP/1.0" && version_ != "HTTP/1.1") {
+
+    if (m_http_version != "HTTP/1.0" && m_http_version != "HTTP/1.1") {
         return false;
     }
-    
-    for (char c : path_) {
+
+    for (char c : m_request_path) {
         if (c < 0x20 || c == 0x7F) {
             return false;
         }
     }
-    
-    if (method_ == HttpMethod::POST || method_ == HttpMethod::PUT) {
+
+    if (m_http_method == HttpMethod::POST || m_http_method == HttpMethod::PUT) {
         auto content_length_header = get_header("content-length");
         if (!content_length_header.empty()) {
             try {
                 size_t content_length = std::stoull(content_length_header);
-                if (body_.size() != content_length) {
-                    return body_.size() >= content_length;
+                if (m_request_body.size() != content_length) {
+                    return m_request_body.size() >= content_length;
                 }
             } catch (const std::exception&) {
                 return false;
             }
         }
     }
-    
+
     return true;
 }
