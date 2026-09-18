@@ -1,9 +1,9 @@
 # 🚀 High-Performance Multithreaded Web Server (C++17)
 
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/swe-robertkibet/multithreaded-webserver-cpp)
-[![C++17](https://img.shields.io/badge/C%2B%2B-17-blue)](https://github.com/swe-robertkibet/multithreaded-webserver-cpp)
-[![License](https://img.shields.io/badge/license-MIT-green)](https://github.com/swe-robertkibet/multithreaded-webserver-cpp/blob/main/LICENSE)
-[![Performance](https://img.shields.io/badge/performance-78.1K%20req%2Fs-brightgreen)](https://github.com/swe-robertkibet/multithreaded-webserver-cpp)
+[![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/coolboy-dev/professional-cpp-webserver)
+[![C++17](https://img.shields.io/badge/C%2B%2B-17-blue)](https://github.com/coolboy-dev/professional-cpp-webserver)
+[![License](https://img.shields.io/badge/license-MIT-green)](https://github.com/coolboy-dev/professional-cpp-webserver/blob/main/LICENSE)
+[![Performance](https://img.shields.io/badge/performance-78.1K%20req%2Fs-brightgreen)](https://github.com/coolboy-dev/professional-cpp-webserver)
 
 A production-grade, event-driven HTTP/1.1 server engineered for extreme throughput and minimal memory footprint. By combining Linux `epoll` with a scalable worker thread pool and an intelligent LRU cache, this server achieves industry-leading performance on modern Linux environments.
 
@@ -54,8 +54,8 @@ The server employs a layered design to decouple network I/O from application log
 ### Quick Start
 ```bash
 # Clone the repository
-git clone https://github.com/swe-robertkibet/multithreaded-webserver-cpp.git
-cd multithreaded-webserver-cpp
+git clone https://github.com/coolboy-dev/professional-cpp-webserver.git
+cd professional-cpp-webserver
 
 # Build the project
 mkdir build && cd build
