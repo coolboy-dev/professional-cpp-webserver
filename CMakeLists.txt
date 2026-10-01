@@ -1,0 +1,42 @@
+cmake_minimum_required(VERSION 3.16)
+project(webserver LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
+endif()
+set(CMAKE_CXX_FLAGS_RELEASE "-O2")
+add_compile_options(-Wall -Wextra -Wpedantic)
+
+# -DSANITIZE=address,undefined  or  -DSANITIZE=thread
+set(SANITIZE "" CACHE STRING "Comma-separated sanitizers")
+if(SANITIZE)
+  add_compile_options(-fsanitize=${SANITIZE} -fno-omit-frame-pointer -g -D_GLIBCXX_ASSERTIONS)
+  add_link_options(-fsanitize=${SANITIZE})
+endif()
+
+find_package(Threads REQUIRED)
+
+file(GLOB CORE_SOURCES src/*.cpp)
+list(REMOVE_ITEM CORE_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp)
+add_library(core STATIC ${CORE_SOURCES})
+target_include_directories(core PUBLIC src)
+target_link_libraries(core PUBLIC Threads::Threads)
+
+add_executable(webserver src/main.cpp)
+target_link_libraries(webserver PRIVATE core)
+
+option(BUILD_TESTS "Build unit tests" ON)
+if(BUILD_TESTS)
+  find_package(GTest)
+  file(GLOB TEST_SOURCES tests/*.cpp)
+  if(GTest_FOUND AND TEST_SOURCES)
+    enable_testing()
+    add_executable(unit_tests ${TEST_SOURCES})
+    target_link_libraries(unit_tests PRIVATE core GTest::gtest_main)
+    include(GoogleTest)
+    gtest_discover_tests(unit_tests)
+  endif()
+endif()

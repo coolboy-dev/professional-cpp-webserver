@@ -1,0 +1,4 @@
+build*/
+bench/results/
+webroot/big.bin
+*.log
