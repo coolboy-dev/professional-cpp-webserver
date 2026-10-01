@@ -12,6 +12,7 @@
 #include "cache.h"
 #include "files.h"
 #include "http.h"
+#include "rate_limiter.h"
 #include "thread_pool.h"
 
 struct Options {
@@ -79,6 +80,7 @@ class Server {
   Options opt_;
   std::unique_ptr<LruCache> cache_;
   std::unique_ptr<FileServer> files_;
+  std::unique_ptr<RateLimiter> limiter_;
   std::unique_ptr<ThreadPool> pool_;  // declared after what its jobs use
   std::vector<std::unique_ptr<Conn>> conns_;  // indexed by fd
   std::vector<char> rd_;                      // shared recv buffer
@@ -90,5 +92,5 @@ class Server {
   std::vector<Completion> cq_;
   FILE* log_ = nullptr;
   std::chrono::steady_clock::time_point started_, last_sweep_;
-  std::atomic<uint64_t> live_{0}, requests_total_{0};
+  std::atomic<uint64_t> live_{0}, requests_total_{0}, requests_limited_{0};
 };

@@ -36,6 +36,7 @@ bool Server::setup() {
   }
   if (opt_.cache_mb) cache_ = std::make_unique<LruCache>(opt_.cache_mb << 20, std::chrono::seconds(300));
   files_ = std::make_unique<FileServer>(root, 50u << 20, cache_.get());
+  if (opt_.rate > 0) limiter_ = std::make_unique<RateLimiter>(opt_.rate, opt_.burst > 0 ? opt_.burst : opt_.rate);
   if (!opt_.log.empty()) {
     log_ = opt_.log == "-" ? stdout : std::fopen(opt_.log.c_str(), "a");
     if (!log_) { std::perror(opt_.log.c_str()); return false; }
@@ -205,6 +206,13 @@ void Server::try_dispatch(Conn& c) {
   requests_total_++;
   bool ka = req.keep_alive();
   bool head = req.method == Method::HEAD;
+  if (limiter_ && !limiter_->allow(c.ip)) {
+    requests_limited_++;
+    Response e = Response::error(429, "Rate limit exceeded");
+    e.extra.emplace_back("Retry-After", "1");
+    push_completion({c.fd, c.gen, e.serialize(ka, head), ka, 429, e.body.size()});
+    return;
+  }
   pool_->post([this, fd = c.fd, gen = c.gen, req = std::move(req), ka, head] {
     Response resp;
     try {
@@ -322,7 +330,13 @@ Response Server::api(const Request& req) {
   r.body = "{\"server\":\"webserver\",\"threads\":" + std::to_string(pool_->size()) +
            ",\"queue_depth\":" + std::to_string(pool_->queued()) +
            ",\"active_connections\":" + std::to_string(live_.load()) +
-           ",\"requests_total\":" + std::to_string(requests_total_.load());
+           ",\"requests_total\":" + std::to_string(requests_total_.load()) +
+           ",\"requests_limited\":" + std::to_string(requests_limited_.load());
+  if (limiter_) {
+    RateLimiter::Stats s = limiter_->stats();
+    r.body += ",\"rate_limiter\":{\"allowed\":" + std::to_string(s.allowed) + ",\"denied\":" + std::to_string(s.denied) +
+              ",\"clients\":" + std::to_string(s.clients) + "}";
+  }
   if (cache_) {
     LruCache::Stats s = cache_->stats();
     uint64_t total = s.hits + s.misses;
