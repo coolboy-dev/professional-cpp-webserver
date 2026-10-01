@@ -35,6 +35,7 @@ fail=0
 run_wrk() {  # name connections path
   wrk -t10 -c"$2" -d"$DUR" --latency "$URL$3" > "$OUT/$1.txt" 2>&1
   grep -q "Non-2xx" "$OUT/$1.txt" && { echo "FAIL: non-2xx responses in $1"; fail=1; }
+  grep -q "Requests/sec" "$OUT/$1.txt" || { echo "FAIL: no result in $1"; fail=1; }
   printf "%-16s %9s req/s   p50 %8s   p99 %8s   rss %-10s %s\n" "$1" \
     "$(awk '/Requests\/sec/{print $2}' "$OUT/$1.txt")" \
     "$(awk '$1=="50%"{print $2}' "$OUT/$1.txt")" "$(awk '$1=="99%"{print $2}' "$OUT/$1.txt")" \
@@ -44,6 +45,7 @@ run_ab() {  # name flags
   # shellcheck disable=SC2086
   ab -q -n 100000 -c 1000 $2 "$URL/" > "$OUT/$1.txt" 2>&1
   grep -qE "Non-2xx|Failed requests: +[1-9]" "$OUT/$1.txt" && { echo "FAIL: errors in $1"; fail=1; }
+  grep -q "Requests per second" "$OUT/$1.txt" || { echo "FAIL: no result in $1"; fail=1; }
   printf "%-16s %9s req/s   failed %s\n" "$1" \
     "$(awk '/Requests per second/{print $4}' "$OUT/$1.txt")" "$(awk '/Failed requests/{print $3}' "$OUT/$1.txt")"
 }
