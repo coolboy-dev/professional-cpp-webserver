@@ -37,6 +37,7 @@ struct Conn {
   uint32_t interest = 0;            // epoll mask currently registered
   bool busy = false;                // one request in flight per connection
   bool close_after_write = false;
+  bool linger = false;              // error close: drain input briefly so the client sees the response
   bool peer_closed = false;
   std::string log_prefix;           // "GET /path HTTP/1.1"
   std::chrono::steady_clock::time_point last_active;

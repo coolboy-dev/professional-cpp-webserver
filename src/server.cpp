@@ -16,6 +16,7 @@
 
 namespace {
 constexpr size_t kMaxRequest = 64 * 1024;
+constexpr auto kLingerTimeout = std::chrono::seconds(2);
 using Clock = std::chrono::steady_clock;
 }  // namespace
 
@@ -176,10 +177,11 @@ void Server::on_readable(Conn& c) {
   }
   if (n == 0) {
     c.peer_closed = true;  // half-close: still deliver whatever is in flight
-    if (!c.busy && c.woff == c.wbuf.size()) { close_conn(c.fd); return; }
+    if (c.linger || (!c.busy && c.woff == c.wbuf.size())) { close_conn(c.fd); return; }
     update_interest(c);
     return;
   }
+  if (c.linger) return;  // discard; last_active deliberately not refreshed
   c.last_active = Clock::now();
   c.rbuf.append(rd_.data(), static_cast<size_t>(n));
   try_dispatch(c);
@@ -195,6 +197,7 @@ void Server::try_dispatch(Conn& c) {
   c.busy = true;
   if (pr.status == Parse::Bad) {
     c.rbuf.clear();
+    c.linger = true;  // the client may still be sending; closing on unread input would RST the reply away
     c.log_prefix = "-";
     Response e = Response::error(pr.error);
     push_completion({c.fd, c.gen, e.serialize(false), false, pr.error, e.body.size()});
@@ -275,8 +278,17 @@ void Server::flush_write(Conn& c) {
   }
   c.wbuf.clear();
   c.woff = 0;
+  if (c.close_after_write || c.peer_closed) {
+    if (c.linger && !c.peer_closed) {  // lingering close: FIN now, drain until the peer's EOF or timeout
+      shutdown(c.fd, SHUT_WR);
+      c.last_active = Clock::now();
+      update_interest(c);
+      return;
+    }
+    close_conn(c.fd);
+    return;
+  }
   c.busy = false;
-  if (c.close_after_write || c.peer_closed) { close_conn(c.fd); return; }
   try_dispatch(c);  // a pipelined request may already be buffered
   if (conn(c.fd)) update_interest(c);
 }
@@ -306,8 +318,10 @@ void Server::sweep_idle() {
   auto now = Clock::now();
   last_sweep_ = now;
   auto limit = std::chrono::seconds(opt_.idle_s);
-  for (size_t fd = 0; fd < conns_.size(); ++fd)
-    if (conns_[fd] && now - conns_[fd]->last_active > limit) close_conn(static_cast<int>(fd));
+  for (size_t fd = 0; fd < conns_.size(); ++fd) {
+    Conn* c = conns_[fd].get();
+    if (c && now - c->last_active > (c->linger ? kLingerTimeout : limit)) close_conn(static_cast<int>(fd));
+  }
   if (log_) std::fflush(log_);
 }
 

@@ -1,0 +1,44 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y cmake g++ libgtest-dev apache2-utils
+      - name: Release build and unit tests
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j
+          ctest --test-dir build --output-on-failure
+      - name: Smoke and hardening on Release
+        run: |
+          ./build/webserver --port 8080 --root webroot --idle 3 & echo $! > /tmp/pid
+          sleep 0.5
+          tests/smoke.sh 8080
+          tests/raw.py --port 8080 --idle 3
+          ab -q -n 20000 -c 500 http://127.0.0.1:8080/ | grep -E "Failed requests|Non-2xx" | tee /tmp/ab.txt
+          ! grep -qE "Failed requests: +[1-9]|Non-2xx" /tmp/ab.txt
+          kill -INT $(cat /tmp/pid); wait $(cat /tmp/pid)
+      - name: ASan + UBSan
+        run: |
+          cmake -S . -B build-asan -DSANITIZE=address,undefined -DCMAKE_BUILD_TYPE=Debug
+          cmake --build build-asan -j
+          ASAN_OPTIONS=detect_leaks=1 ./build-asan/unit_tests
+          ./build-asan/webserver --port 8081 --root webroot --idle 3 --threads 4 2> /tmp/asan.log & echo $! > /tmp/pid
+          sleep 0.5
+          tests/smoke.sh 8081
+          tests/raw.py --port 8081 --idle 3
+          kill -INT $(cat /tmp/pid); wait $(cat /tmp/pid)
+          ! grep -qE "Sanitizer|runtime error" /tmp/asan.log
+      - name: TSan
+        run: |
+          cmake -S . -B build-tsan -DSANITIZE=thread -DCMAKE_BUILD_TYPE=Debug
+          cmake --build build-tsan -j
+          ./build-tsan/unit_tests
+          ./build-tsan/webserver --port 8082 --root webroot --idle 3 --threads 8 2> /tmp/tsan.log & echo $! > /tmp/pid
+          sleep 0.5
+          tests/smoke.sh 8082
+          ab -q -k -n 20000 -c 200 http://127.0.0.1:8082/ > /dev/null
+          kill -INT $(cat /tmp/pid); wait $(cat /tmp/pid)
+          ! grep -q "ThreadSanitizer" /tmp/tsan.log
