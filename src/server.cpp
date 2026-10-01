@@ -12,6 +12,7 @@
 #include <cstring>
 #include <ctime>
 #include <filesystem>
+#include <thread>
 
 namespace {
 constexpr size_t kMaxRequest = 64 * 1024;
@@ -63,7 +64,9 @@ bool Server::setup() {
 
   conns_.resize(1024);
   rd_.resize(kMaxRequest);
-  std::fprintf(stderr, "listening on 0.0.0.0:%u, root %s\n", opt_.port, root.c_str());
+  unsigned n = opt_.threads > 0 ? static_cast<unsigned>(opt_.threads) : std::thread::hardware_concurrency();
+  pool_ = std::make_unique<ThreadPool>(n ? n : 4);
+  std::fprintf(stderr, "listening on 0.0.0.0:%u, root %s, %zu workers\n", opt_.port, root.c_str(), pool_->size());
   return true;
 }
 
@@ -105,6 +108,7 @@ int Server::run() {
   }
 
   close(lfd_);
+  pool_->shutdown();  // workers may still push completions; they are discarded below
   for (auto& c : conns_)
     if (c) close(c->fd);
   conns_.clear();
@@ -200,9 +204,15 @@ void Server::try_dispatch(Conn& c) {
   requests_total_++;
   bool ka = req.keep_alive();
   bool head = req.method == Method::HEAD;
-  // Phase 3: handled inline on the loop thread. Phase 4 posts this to the pool.
-  Response resp = handle(req);
-  push_completion({c.fd, c.gen, resp.serialize(ka, head), ka, resp.status, resp.body.size()});
+  pool_->post([this, fd = c.fd, gen = c.gen, req = std::move(req), ka, head] {
+    Response resp;
+    try {
+      resp = handle(req);
+    } catch (...) {
+      resp = Response::error(500);  // never leave the connection busy forever
+    }
+    push_completion({fd, gen, resp.serialize(ka, head), ka, resp.status, resp.body.size()});
+  });
 }
 
 void Server::push_completion(Completion&& d) {
@@ -308,7 +318,9 @@ Response Server::api(const Request& req) {
   }
   Response r;
   r.content_type = "application/json";
-  r.body = "{\"server\":\"webserver\",\"active_connections\":" + std::to_string(live_.load()) +
+  r.body = "{\"server\":\"webserver\",\"threads\":" + std::to_string(pool_->size()) +
+           ",\"queue_depth\":" + std::to_string(pool_->queued()) +
+           ",\"active_connections\":" + std::to_string(live_.load()) +
            ",\"requests_total\":" + std::to_string(requests_total_.load()) + "}\n";
   return r;
 }

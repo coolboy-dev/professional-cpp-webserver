@@ -11,6 +11,7 @@
 
 #include "files.h"
 #include "http.h"
+#include "thread_pool.h"
 
 struct Options {
   uint16_t port = 8080;
@@ -76,6 +77,7 @@ class Server {
 
   Options opt_;
   std::unique_ptr<FileServer> files_;
+  std::unique_ptr<ThreadPool> pool_;  // declared after what its jobs use
   std::vector<std::unique_ptr<Conn>> conns_;  // indexed by fd
   std::vector<char> rd_;                      // shared recv buffer
   int epfd_ = -1, lfd_ = -1, wakefd_ = -1;

@@ -1,6 +1,5 @@
 #include <gtest/gtest.h>
 
-#include <regex>
 #include <string>
 
 #include "http.h"
@@ -159,8 +158,17 @@ TEST(Serialize, HeadKeepsLengthDropsBody) {
 }
 
 TEST(Serialize, DateIsImfFixdate) {
-  std::regex re(R"(^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}:\d{2} GMT$)");
-  EXPECT_TRUE(std::regex_match(http_date(), re)) << http_date();
+  // "Sun, 06 Nov 1994 08:49:37 GMT": fixed width, fixed punctuation.
+  std::string d = http_date();
+  ASSERT_EQ(d.size(), 29u) << d;
+  const std::string days = "Mon Tue Wed Thu Fri Sat Sun", months = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec";
+  EXPECT_NE(days.find(d.substr(0, 3)), std::string::npos) << d;
+  EXPECT_NE(months.find(d.substr(8, 3)), std::string::npos) << d;
+  EXPECT_EQ(d.substr(3, 2), ", ");
+  EXPECT_EQ(d.substr(25), " GMT");
+  for (size_t i : {5u, 6u, 12u, 13u, 14u, 15u, 17u, 18u, 20u, 21u, 23u, 24u}) EXPECT_TRUE(std::isdigit(static_cast<unsigned char>(d[i]))) << d;
+  EXPECT_EQ(d[19], ':');
+  EXPECT_EQ(d[22], ':');
 }
 
 TEST(Serialize, ErrorPage) {
