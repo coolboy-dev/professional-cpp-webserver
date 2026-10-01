@@ -327,7 +327,10 @@ Response Server::api(const Request& req) {
   }
   Response r;
   r.content_type = "application/json";
-  r.body = "{\"server\":\"webserver\",\"threads\":" + std::to_string(pool_->size()) +
+  auto uptime = std::chrono::duration_cast<std::chrono::seconds>(Clock::now() - started_).count();
+  r.body = "{\"server\":\"webserver\",\"uptime_s\":" + std::to_string(uptime) +
+           ",\"document_root\":\"" + files_->root().string() + "\"" +
+           ",\"threads\":" + std::to_string(pool_->size()) +
            ",\"queue_depth\":" + std::to_string(pool_->queued()) +
            ",\"active_connections\":" + std::to_string(live_.load()) +
            ",\"requests_total\":" + std::to_string(requests_total_.load()) +
