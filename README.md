@@ -2,7 +2,7 @@
 
 [![ci](https://github.com/coolboy-dev/professional-cpp-webserver/actions/workflows/ci.yml/badge.svg)](https://github.com/coolboy-dev/professional-cpp-webserver/actions/workflows/ci.yml)
 
-An HTTP/1.1 static file server for Linux in about 1,500 lines of C++17 with no
+An HTTP/1.1 static file server for Linux in about 1,300 lines of C++17 with no
 dependencies beyond the standard library and the kernel. One epoll event loop
 owns every socket; a fixed pool of workers builds responses; an LRU cache,
 a per-IP token-bucket rate limiter and a JSON stats endpoint sit on top.
