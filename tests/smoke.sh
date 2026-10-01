@@ -13,6 +13,8 @@ hdr()  { curl -sI "$@" | grep -i "^$1:" | cut -d' ' -f2- | tr -d '\r' | tr 'A-Z'
 check "GET /"               200 "$(code $B/)"
 check "GET /test.html"      200 "$(code $B/test.html)"
 check "GET /api/info"       200 "$(code $B/api/info)"
+curl -s -o /dev/null $B/test.html
+check "X-Cache HIT on repeat" "hit" "$(hdr x-cache $B/test.html)"
 check "404"                 404 "$(code $B/nope)"
 check "traversal"           403 "$(code --path-as-is "$B/../../etc/passwd")"
 check "encoded traversal"   403 "$(code --path-as-is "$B/%2e%2e/%2e%2e/etc/passwd")"

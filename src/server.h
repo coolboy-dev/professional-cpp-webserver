@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "cache.h"
 #include "files.h"
 #include "http.h"
 #include "thread_pool.h"
@@ -76,6 +77,7 @@ class Server {
   Conn* conn(int fd) { return fd >= 0 && static_cast<size_t>(fd) < conns_.size() ? conns_[fd].get() : nullptr; }
 
   Options opt_;
+  std::unique_ptr<LruCache> cache_;
   std::unique_ptr<FileServer> files_;
   std::unique_ptr<ThreadPool> pool_;  // declared after what its jobs use
   std::vector<std::unique_ptr<Conn>> conns_;  // indexed by fd

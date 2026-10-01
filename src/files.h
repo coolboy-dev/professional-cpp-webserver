@@ -4,13 +4,15 @@
 #include <string>
 #include <string_view>
 
+#include "cache.h"
 #include "http.h"
 
 class FileServer {
  public:
   // root must already be canonical (see Server::run). Files above max_file bytes get 403.
-  explicit FileServer(std::filesystem::path root, size_t max_file = 50u << 20)
-      : root_(std::move(root)), max_file_(max_file) {}
+  // cache may be null. Files up to 1 MB are cached by their resolved relative path.
+  explicit FileServer(std::filesystem::path root, size_t max_file = 50u << 20, LruCache* cache = nullptr)
+      : root_(std::move(root)), max_file_(max_file), cache_(cache) {}
 
   Response get(std::string_view decoded_path) const;  // 200 | listing | 403 | 404 | 500
   const std::filesystem::path& root() const { return root_; }
@@ -21,9 +23,10 @@ class FileServer {
   static bool safe_relative(std::string_view decoded, std::string& rel);
 
  private:
-  Response serve_file(const std::filesystem::path& p) const;
+  Response serve_file(const std::filesystem::path& p, const std::string& key) const;
   Response listing(const std::filesystem::path& dir, std::string_view url_path) const;
 
   std::filesystem::path root_;
   size_t max_file_;
+  LruCache* cache_;
 };

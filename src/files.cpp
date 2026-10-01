@@ -11,6 +11,8 @@
 
 namespace {
 
+constexpr size_t kMaxCacheable = 1u << 20;
+
 std::string html_escape(std::string_view s) {
   std::string out;
   out.reserve(s.size());
@@ -83,6 +85,15 @@ bool FileServer::safe_relative(std::string_view decoded, std::string& rel) {
 Response FileServer::get(std::string_view url) const {
   std::string rel;
   if (!safe_relative(url, rel)) return Response::error(403, "Forbidden");
+  if (cache_) {
+    if (auto e = cache_->get(rel)) {  // zero syscalls on a hit
+      Response r;
+      r.content_type = e->mime;
+      r.body = e->body;  // ponytail: one copy per hit; a shared_ptr body in Response if it shows in a profile
+      r.extra.emplace_back("X-Cache", "HIT");
+      return r;
+    }
+  }
   std::filesystem::path p = rel.empty() ? root_ : root_ / rel;
 
   struct stat st{};
@@ -90,14 +101,14 @@ Response FileServer::get(std::string_view url) const {
   if (S_ISDIR(st.st_mode)) {
     std::filesystem::path idx = p / "index.html";
     struct stat ist{};
-    if (::stat(idx.c_str(), &ist) == 0 && S_ISREG(ist.st_mode)) return serve_file(idx);
+    if (::stat(idx.c_str(), &ist) == 0 && S_ISREG(ist.st_mode)) return serve_file(idx, rel);
     return listing(p, url);
   }
   if (!S_ISREG(st.st_mode)) return Response::error(403, "Forbidden");
-  return serve_file(p);
+  return serve_file(p, rel);
 }
 
-Response FileServer::serve_file(const std::filesystem::path& p) const {
+Response FileServer::serve_file(const std::filesystem::path& p, const std::string& key) const {
   int fd = ::open(p.c_str(), O_RDONLY | O_CLOEXEC);
   if (fd < 0) return Response::error(errno == EACCES ? 403 : 404, "Not Found");
   struct stat st{};
@@ -116,6 +127,11 @@ Response FileServer::serve_file(const std::filesystem::path& p) const {
   }
   ::close(fd);
   r.body.resize(got);
+  if (cache_) {
+    if (got <= kMaxCacheable)
+      cache_->put(key, std::make_shared<const CacheEntry>(CacheEntry{r.body, r.content_type, LruCache::Clock::now()}));
+    r.extra.emplace_back("X-Cache", "MISS");
+  }
   return r;
 }
 

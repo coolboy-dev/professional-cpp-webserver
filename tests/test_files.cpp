@@ -107,3 +107,19 @@ TEST_F(FileServerTest, SymlinkInsideRootIsFollowed) {
   Response r = srv_->get("/etclink/hostname");
   EXPECT_TRUE(r.status == 200 || r.status == 404) << r.status;  // documented behaviour: followed
 }
+
+TEST_F(FileServerTest, CacheHitAfterMiss) {
+  LruCache cache(1 << 20, std::chrono::seconds(300));
+  FileServer cached(fs::canonical(dir_), 50, &cache);
+  auto xcache = [](const Response& r) { for (auto& [k, v] : r.extra) if (k == "X-Cache") return v; return std::string("none"); };
+  EXPECT_EQ(xcache(cached.get("/sub/x.txt")), "MISS");
+  EXPECT_EQ(xcache(cached.get("/sub/x.txt")), "HIT");
+  EXPECT_EQ(cached.get("/sub/x.txt").body, "x content");
+  EXPECT_EQ(xcache(cached.get("/sub")), "MISS");       // directory index cached under its own key
+  EXPECT_EQ(xcache(cached.get("/sub/")), "HIT");
+  EXPECT_EQ(xcache(cached.get("/nope")), "none");      // errors are never cached
+  EXPECT_EQ(xcache(cached.get("/list/")), "none");     // listings are never cached
+  EXPECT_EQ(cache.stats().entries, 2u);
+  write("sub/x.txt", "changed");
+  EXPECT_EQ(cached.get("/sub/x.txt").body, "x content");  // TTL freshness: stale until expiry
+}

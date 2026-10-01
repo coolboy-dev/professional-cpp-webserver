@@ -34,7 +34,8 @@ bool Server::setup() {
     std::fprintf(stderr, "--root %s: not a directory\n", opt_.root.c_str());
     return false;
   }
-  files_ = std::make_unique<FileServer>(root);
+  if (opt_.cache_mb) cache_ = std::make_unique<LruCache>(opt_.cache_mb << 20, std::chrono::seconds(300));
+  files_ = std::make_unique<FileServer>(root, 50u << 20, cache_.get());
   if (!opt_.log.empty()) {
     log_ = opt_.log == "-" ? stdout : std::fopen(opt_.log.c_str(), "a");
     if (!log_) { std::perror(opt_.log.c_str()); return false; }
@@ -321,7 +322,15 @@ Response Server::api(const Request& req) {
   r.body = "{\"server\":\"webserver\",\"threads\":" + std::to_string(pool_->size()) +
            ",\"queue_depth\":" + std::to_string(pool_->queued()) +
            ",\"active_connections\":" + std::to_string(live_.load()) +
-           ",\"requests_total\":" + std::to_string(requests_total_.load()) + "}\n";
+           ",\"requests_total\":" + std::to_string(requests_total_.load());
+  if (cache_) {
+    LruCache::Stats s = cache_->stats();
+    uint64_t total = s.hits + s.misses;
+    r.body += ",\"cache\":{\"hits\":" + std::to_string(s.hits) + ",\"misses\":" + std::to_string(s.misses) +
+              ",\"entries\":" + std::to_string(s.entries) + ",\"bytes\":" + std::to_string(s.bytes) +
+              ",\"hit_ratio\":" + std::to_string(total ? static_cast<double>(s.hits) / static_cast<double>(total) : 0.0) + "}";
+  }
+  r.body += "}\n";
   return r;
 }
 
