@@ -1,8 +1,14 @@
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
 #include "server.h"
+
+static Server* g_server = nullptr;
+static void on_signal(int) {
+  if (g_server) g_server->request_stop();
+}
 
 static void usage(const char* argv0) {
   std::fprintf(stderr,
@@ -43,5 +49,13 @@ int main(int argc, char** argv) {
       return 2;
     }
   }
-  return Server(std::move(o)).run();
+  std::signal(SIGPIPE, SIG_IGN);
+  Server server(std::move(o));
+  g_server = &server;
+  struct sigaction sa{};
+  sa.sa_handler = on_signal;  // no SA_RESTART: epoll_wait returns EINTR and the loop re-checks stop_
+  sigemptyset(&sa.sa_mask);
+  sigaction(SIGINT, &sa, nullptr);
+  sigaction(SIGTERM, &sa, nullptr);
+  return server.run();
 }
