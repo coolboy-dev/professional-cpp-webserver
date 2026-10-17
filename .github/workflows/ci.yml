@@ -13,7 +13,7 @@ jobs:
           ctest --test-dir build --output-on-failure
       - name: Smoke and hardening on Release
         run: |
-          ./build/webserver --port 8080 --root webroot --idle 3 & echo $! > /tmp/pid
+          ./build/webserver --port 8080 --root webroot --idle 3 --loops 0 & echo $! > /tmp/pid
           sleep 0.5
           tests/smoke.sh 8080
           tests/raw.py --port 8080 --idle 3
@@ -25,7 +25,7 @@ jobs:
           cmake -S . -B build-asan -DSANITIZE=address,undefined -DCMAKE_BUILD_TYPE=Debug
           cmake --build build-asan -j
           ASAN_OPTIONS=detect_leaks=1 ./build-asan/unit_tests
-          ./build-asan/webserver --port 8081 --root webroot --idle 3 --threads 4 2> /tmp/asan.log & echo $! > /tmp/pid
+          ./build-asan/webserver --port 8081 --root webroot --idle 3 --threads 4 --loops 4 2> /tmp/asan.log & echo $! > /tmp/pid
           sleep 0.5
           tests/smoke.sh 8081
           tests/raw.py --port 8081 --idle 3
@@ -36,7 +36,7 @@ jobs:
           cmake -S . -B build-tsan -DSANITIZE=thread -DCMAKE_BUILD_TYPE=Debug
           cmake --build build-tsan -j
           ./build-tsan/unit_tests
-          ./build-tsan/webserver --port 8082 --root webroot --idle 3 --threads 8 2> /tmp/tsan.log & echo $! > /tmp/pid
+          ./build-tsan/webserver --port 8082 --root webroot --idle 3 --threads 8 --loops 4 2> /tmp/tsan.log & echo $! > /tmp/pid
           sleep 0.5
           tests/smoke.sh 8082
           ab -q -k -n 20000 -c 200 http://127.0.0.1:8082/ > /dev/null

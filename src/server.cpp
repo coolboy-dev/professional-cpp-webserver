@@ -12,20 +12,23 @@
 #include <cstring>
 #include <ctime>
 #include <filesystem>
+#include <limits>
 #include <thread>
 
 namespace {
 constexpr size_t kMaxRequest = 64 * 1024;
 constexpr auto kLingerTimeout = std::chrono::seconds(2);
+// Accepts per wakeup when there are several loops: one that drains the whole
+// backlog ends up owning most connections. A lone loop drains it, or the
+// connections still waiting sit behind full event batches (p99 went 8 -> 190 ms).
+constexpr int kAcceptBatch = 4;
 using Clock = std::chrono::steady_clock;
 }  // namespace
 
 void Server::request_stop() {
   stop_.store(true);
-  if (wakefd_ >= 0) {
-    uint64_t one = 1;
-    (void)!write(wakefd_, &one, sizeof one);
-  }
+  size_t n = nloops_.load();
+  for (size_t i = 0; i < n; ++i) loops_[i]->wake();
 }
 
 bool Server::setup() {
@@ -55,32 +58,76 @@ bool Server::setup() {
   if (bind(lfd_, reinterpret_cast<sockaddr*>(&addr), sizeof addr) < 0) { std::perror("bind"); return false; }
   if (listen(lfd_, 4096) < 0) { std::perror("listen"); return false; }
 
+  unsigned hw = std::thread::hardware_concurrency();
+  if (!hw) hw = 4;
+  unsigned nl = opt_.loops > 0 ? static_cast<unsigned>(opt_.loops) : hw;
+  loops_.reserve(nl);  // request_stop reads loops_ from a signal handler, so it must never move
+  for (unsigned i = 0; i < nl; ++i) {
+    loops_.push_back(std::make_unique<Loop>(*this));
+    if (!loops_.back()->init()) return false;
+    nloops_.store(loops_.size());
+  }
+  pool_ = std::make_unique<ThreadPool>(opt_.threads > 0 ? static_cast<unsigned>(opt_.threads) : hw);
+  std::fprintf(stderr, "listening on 0.0.0.0:%u, root %s, %zu loops, %zu workers\n", opt_.port, root.c_str(),
+               loops_.size(), pool_->size());
+  return true;
+}
+
+int Server::run() {
+  if (!setup()) return 1;
+  started_ = Clock::now();
+  std::vector<std::thread> others;
+  for (size_t i = 1; i < loops_.size(); ++i) others.emplace_back(&Loop::run, loops_[i].get());
+  loops_[0]->run();
+  request_stop();  // loop 0 may have left on an epoll error; take the rest down with it
+  for (std::thread& t : others) t.join();
+
+  close(lfd_);
+  pool_->shutdown();  // workers may still push completions; the loops discard them
+  loops_.clear();     // closes every connection, epoll and eventfd
+  if (log_ && log_ != stdout) std::fclose(log_);
+  return 0;
+}
+
+Loop::~Loop() {
+  for (auto& c : conns_)
+    if (c) close(c->fd);
+  if (epfd_ >= 0) close(epfd_);
+  if (wakefd_ >= 0) close(wakefd_);
+}
+
+bool Loop::init() {
   epfd_ = epoll_create1(EPOLL_CLOEXEC);
   wakefd_ = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
   if (epfd_ < 0 || wakefd_ < 0) { std::perror("epoll/eventfd"); return false; }
   epoll_event ev{};
   ev.events = EPOLLIN;
-  ev.data.fd = lfd_;
-  epoll_ctl(epfd_, EPOLL_CTL_ADD, lfd_, &ev);
   ev.data.fd = wakefd_;
-  epoll_ctl(epfd_, EPOLL_CTL_ADD, wakefd_, &ev);
-
+  if (epoll_ctl(epfd_, EPOLL_CTL_ADD, wakefd_, &ev) < 0 || !add_listener()) { std::perror("epoll_ctl"); return false; }
   conns_.resize(1024);
   rd_.resize(kMaxRequest);
-  unsigned n = opt_.threads > 0 ? static_cast<unsigned>(opt_.threads) : std::thread::hardware_concurrency();
-  pool_ = std::make_unique<ThreadPool>(n ? n : 4);
-  std::fprintf(stderr, "listening on 0.0.0.0:%u, root %s, %zu workers\n", opt_.port, root.c_str(), pool_->size());
   return true;
 }
 
-// ponytail: one loop thread does every syscall (~100k req/s ceiling);
-// N loops with EPOLLEXCLUSIVE on the shared listener is the upgrade.
-int Server::run() {
-  if (!setup()) return 1;
-  started_ = last_sweep_ = Clock::now();
+// Every loop waits on the same listening socket. EPOLLEXCLUSIVE makes the
+// kernel wake one of them per new connection instead of all of them.
+bool Loop::add_listener() {
+  epoll_event ev{};
+  ev.events = EPOLLIN | EPOLLEXCLUSIVE;
+  ev.data.fd = s_.lfd_;
+  return epoll_ctl(epfd_, EPOLL_CTL_ADD, s_.lfd_, &ev) == 0;
+}
+
+void Loop::wake() {
+  uint64_t one = 1;
+  (void)!write(wakefd_, &one, sizeof one);
+}
+
+void Loop::run() {
+  last_sweep_ = Clock::now();
   std::vector<epoll_event> evs(1024);
 
-  while (!stop_.load(std::memory_order_relaxed)) {
+  while (!s_.stop_.load(std::memory_order_relaxed)) {
     int n = epoll_wait(epfd_, evs.data(), static_cast<int>(evs.size()), 1000);
     if (n < 0) {
       if (errno == EINTR) continue;
@@ -91,7 +138,7 @@ int Server::run() {
     for (int i = 0; i < n; ++i) {
       int fd = evs[i].data.fd;
       uint32_t ev = evs[i].events;
-      if (fd == lfd_) { accept_ready = true; continue; }
+      if (fd == s_.lfd_) { accept_ready = true; continue; }
       if (fd == wakefd_) {
         uint64_t v;
         (void)!read(wakefd_, &v, sizeof v);
@@ -109,27 +156,18 @@ int Server::run() {
     if (accept_ready) on_accept();  // after the batch: a closed fd number is never reused mid-batch
     if (Clock::now() - last_sweep_ >= std::chrono::seconds(1)) sweep_idle();
   }
-
-  close(lfd_);
-  pool_->shutdown();  // workers may still push completions; they are discarded below
-  for (auto& c : conns_)
-    if (c) close(c->fd);
-  conns_.clear();
-  close(epfd_);
-  close(wakefd_);
-  if (log_ && log_ != stdout) std::fclose(log_);
-  return 0;
 }
 
-void Server::on_accept() {
-  for (;;) {
-    if (live_.load() >= static_cast<uint64_t>(opt_.max_conns)) { pause_accept(); return; }
+void Loop::on_accept() {
+  const int batch = s_.loops_.size() > 1 ? kAcceptBatch : std::numeric_limits<int>::max();
+  for (int i = 0; i < batch; ++i) {
+    if (s_.live_.load() >= static_cast<uint64_t>(s_.opt_.max_conns)) { pause_accept(); return; }
     sockaddr_in sa{};
     socklen_t sl = sizeof sa;
-    int fd = accept4(lfd_, reinterpret_cast<sockaddr*>(&sa), &sl, SOCK_NONBLOCK | SOCK_CLOEXEC);
+    int fd = accept4(s_.lfd_, reinterpret_cast<sockaddr*>(&sa), &sl, SOCK_NONBLOCK | SOCK_CLOEXEC);
     if (fd < 0) {
       if (errno == EAGAIN) return;
-      if (errno == EINTR) continue;
+      if (errno == EINTR) { --i; continue; }
       if (errno == EMFILE || errno == ENFILE || errno == ENOBUFS || errno == ENOMEM) { pause_accept(); return; }
       continue;  // ECONNABORTED and friends: the peer is gone, nothing to do
     }
@@ -149,26 +187,23 @@ void Server::on_accept() {
     ev.data.fd = fd;
     if (epoll_ctl(epfd_, EPOLL_CTL_ADD, fd, &ev) < 0) { close(fd); continue; }
     conns_[fd] = std::move(c);
-    live_++;
+    s_.live_++;
+    live++;
   }
 }
 
-void Server::pause_accept() {
+void Loop::pause_accept() {
   if (accept_paused_) return;
-  epoll_ctl(epfd_, EPOLL_CTL_DEL, lfd_, nullptr);
+  epoll_ctl(epfd_, EPOLL_CTL_DEL, s_.lfd_, nullptr);
   accept_paused_ = true;
 }
 
-void Server::resume_accept() {
-  if (!accept_paused_ || live_.load() >= static_cast<uint64_t>(opt_.max_conns)) return;
-  epoll_event ev{};
-  ev.events = EPOLLIN;
-  ev.data.fd = lfd_;
-  epoll_ctl(epfd_, EPOLL_CTL_ADD, lfd_, &ev);
-  accept_paused_ = false;
+void Loop::resume_accept() {
+  if (!accept_paused_ || s_.live_.load() >= static_cast<uint64_t>(s_.opt_.max_conns)) return;
+  if (add_listener()) accept_paused_ = false;
 }
 
-void Server::on_readable(Conn& c) {
+void Loop::on_readable(Conn& c) {
   ssize_t n = recv(c.fd, rd_.data(), rd_.size(), 0);
   if (n < 0) {
     if (errno == EAGAIN || errno == EINTR) return;
@@ -190,7 +225,7 @@ void Server::on_readable(Conn& c) {
 
 // Parses the next request out of rbuf and starts it. One in flight per
 // connection, so responses are always written in request order.
-void Server::try_dispatch(Conn& c) {
+void Loop::try_dispatch(Conn& c) {
   if (c.busy || c.close_after_write) return;
   ParseResult pr = parse_request(c.rbuf, kMaxRequest);
   if (pr.status == Parse::Incomplete) return;
@@ -206,20 +241,20 @@ void Server::try_dispatch(Conn& c) {
   c.rbuf.erase(0, pr.consumed);
   Request req = std::move(pr.req);
   c.log_prefix = std::string(method_name(req.method)) + ' ' + req.path + ' ' + req.version;
-  requests_total_++;
+  s_.requests_total_++;
   bool ka = req.keep_alive();
   bool head = req.method == Method::HEAD;
-  if (limiter_ && !limiter_->allow(c.ip)) {
-    requests_limited_++;
+  if (s_.limiter_ && !s_.limiter_->allow(c.ip)) {
+    s_.requests_limited_++;
     Response e = Response::error(429, "Rate limit exceeded");
     e.extra.emplace_back("Retry-After", "1");
     push_completion({c.fd, c.gen, e.serialize(ka, head), ka, 429, e.body.size()});
     return;
   }
-  pool_->post([this, fd = c.fd, gen = c.gen, req = std::move(req), ka, head] {
+  s_.pool_->post([this, fd = c.fd, gen = c.gen, req = std::move(req), ka, head] {
     Response resp;
     try {
-      resp = handle(req);
+      resp = s_.handle(req);
     } catch (...) {
       resp = Response::error(500);  // never leave the connection busy forever
     }
@@ -227,20 +262,17 @@ void Server::try_dispatch(Conn& c) {
   });
 }
 
-void Server::push_completion(Completion&& d) {
+void Loop::push_completion(Completion&& d) {
   bool was_empty;
   {
     std::lock_guard<std::mutex> lk(cq_mu_);
     was_empty = cq_.empty();
     cq_.push_back(std::move(d));
   }
-  if (was_empty) {
-    uint64_t one = 1;
-    (void)!write(wakefd_, &one, sizeof one);
-  }
+  if (was_empty) wake();
 }
 
-void Server::drain_completions() {
+void Loop::drain_completions() {
   std::vector<Completion> batch;
   for (;;) {
     {
@@ -253,10 +285,10 @@ void Server::drain_completions() {
   }
 }
 
-void Server::on_completion(Completion&& d) {
+void Loop::on_completion(Completion&& d) {
   Conn* c = conn(d.fd);
   if (!c || c->gen != d.gen) return;  // connection closed while the request was in flight
-  log_access(*c, d.status, d.body_len);
+  s_.log_access(*c, d.status, d.body_len);
   if (!d.keep_alive) c->close_after_write = true;
   c->wbuf = std::move(d.bytes);
   c->woff = 0;
@@ -264,7 +296,7 @@ void Server::on_completion(Completion&& d) {
   flush_write(*c);
 }
 
-void Server::flush_write(Conn& c) {
+void Loop::flush_write(Conn& c) {
   while (c.woff < c.wbuf.size()) {
     ssize_t n = send(c.fd, c.wbuf.data() + c.woff, c.wbuf.size() - c.woff, MSG_NOSIGNAL);
     if (n < 0) {
@@ -293,7 +325,7 @@ void Server::flush_write(Conn& c) {
   if (conn(c.fd)) update_interest(c);
 }
 
-void Server::update_interest(Conn& c) {
+void Loop::update_interest(Conn& c) {
   uint32_t want = 0;
   if (!c.peer_closed && c.rbuf.size() < kMaxRequest) want |= EPOLLIN;  // backpressure when full
   if (c.woff < c.wbuf.size()) want |= EPOLLOUT;
@@ -305,24 +337,26 @@ void Server::update_interest(Conn& c) {
   c.interest = want;
 }
 
-void Server::close_conn(int fd) {
+void Loop::close_conn(int fd) {
   if (!conn(fd)) return;
   close(fd);  // also removes it from epoll
   conns_[fd].reset();
-  live_--;
+  s_.live_--;
+  live--;
   resume_accept();
 }
 
 // ponytail: O(live conns) once a second; a timer wheel if this ever shows up.
-void Server::sweep_idle() {
+void Loop::sweep_idle() {
   auto now = Clock::now();
   last_sweep_ = now;
-  auto limit = std::chrono::seconds(opt_.idle_s);
+  auto limit = std::chrono::seconds(s_.opt_.idle_s);
   for (size_t fd = 0; fd < conns_.size(); ++fd) {
     Conn* c = conns_[fd].get();
     if (c && now - c->last_active > (c->linger ? kLingerTimeout : limit)) close_conn(static_cast<int>(fd));
   }
-  if (log_) std::fflush(log_);
+  resume_accept();  // connections may have closed on another loop
+  if (s_.log_) std::fflush(s_.log_);
 }
 
 Response Server::handle(const Request& req) {
@@ -345,10 +379,14 @@ Response Server::api(const Request& req) {
   r.body = "{\"server\":\"webserver\",\"uptime_s\":" + std::to_string(uptime) +
            ",\"document_root\":\"" + files_->root().string() + "\"" +
            ",\"threads\":" + std::to_string(pool_->size()) +
+           ",\"loops\":" + std::to_string(loops_.size()) +
            ",\"queue_depth\":" + std::to_string(pool_->queued()) +
            ",\"active_connections\":" + std::to_string(live_.load()) +
            ",\"requests_total\":" + std::to_string(requests_total_.load()) +
            ",\"requests_limited\":" + std::to_string(requests_limited_.load());
+  r.body += ",\"connections_per_loop\":[";
+  for (size_t i = 0; i < loops_.size(); ++i) r.body += (i ? "," : "") + std::to_string(loops_[i]->live.load());
+  r.body += "]";
   if (limiter_) {
     RateLimiter::Stats s = limiter_->stats();
     r.body += ",\"rate_limiter\":{\"allowed\":" + std::to_string(s.allowed) + ",\"denied\":" + std::to_string(s.denied) +

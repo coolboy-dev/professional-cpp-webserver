@@ -12,7 +12,7 @@ static void on_signal(int) {
 
 static void usage(const char* argv0) {
   std::fprintf(stderr,
-               "usage: %s [--port 8080] [--threads 0] [--root webroot] [--max-conns 10000]\n"
+               "usage: %s [--port 8080] [--loops 1] [--threads 0] [--root webroot] [--max-conns 10000]\n"
                "          [--idle 30] [--rate 0] [--burst 0] [--cache-mb 100] [--log PATH]\n",
                argv0);
 }
@@ -30,6 +30,8 @@ int main(int argc, char** argv) {
       o.port = static_cast<uint16_t>(p);
     } else if (!std::strcmp(k, "--threads")) {
       o.threads = std::atoi(v);
+    } else if (!std::strcmp(k, "--loops")) {
+      o.loops = std::atoi(v);
     } else if (!std::strcmp(k, "--root")) {
       o.root = v;
     } else if (!std::strcmp(k, "--max-conns")) {

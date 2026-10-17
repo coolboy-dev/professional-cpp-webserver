@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # Benchmark a server binary (started here) or an already running URL.
-#   bench/bench.sh --bin build/webserver [--port 8080] [--threads 8] [--duration 30s] [--label name]
+#   bench/bench.sh --bin build/webserver [--port 8080] [--loops 1] [--threads 8] [--duration 30s] [--label name]
 #   bench/bench.sh --url http://127.0.0.1:8081 --label nginx
 # Refuses to start a binary on a port that already answers, so results can
 # never come from a stale instance. Fails on any non-2xx response.
 set -uo pipefail
 cd "$(dirname "$0")/.."
-BIN= URL= PORT=8080 THREADS=8 DUR=30s LABEL=
+BIN= URL= PORT=8080 LOOPS=1 THREADS=8 DUR=30s LABEL=
 while [ $# -gt 0 ]; do
   case $1 in
     --bin) BIN=$2; shift 2 ;;  --url) URL=$2; shift 2 ;;  --port) PORT=$2; shift 2 ;;
-    --threads) THREADS=$2; shift 2 ;;  --duration) DUR=$2; shift 2 ;;  --label) LABEL=$2; shift 2 ;;
+    --loops) LOOPS=$2; shift 2 ;;  --threads) THREADS=$2; shift 2 ;;  --duration) DUR=$2; shift 2 ;;  --label) LABEL=$2; shift 2 ;;
     *) echo "unknown option $1"; exit 2 ;;
   esac
 done
@@ -20,7 +20,7 @@ if [ -n "$BIN" ]; then
   if nc -z 127.0.0.1 "$PORT" 2>/dev/null; then
     echo "port $PORT already answers: refusing to benchmark an unknown instance"; exit 1
   fi
-  "$BIN" --port "$PORT" --root webroot --threads "$THREADS" 2>/dev/null & PID=$!
+  "$BIN" --port "$PORT" --root webroot --loops "$LOOPS" --threads "$THREADS" 2>/dev/null & PID=$!
   trap 'kill -INT $PID 2>/dev/null; wait $PID 2>/dev/null' EXIT
   URL=http://127.0.0.1:$PORT
   for _ in $(seq 50); do curl -sf "$URL/" >/dev/null && break; sleep 0.1; done

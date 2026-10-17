@@ -18,6 +18,7 @@
 struct Options {
   uint16_t port = 8080;
   int threads = 0;             // 0 = hardware_concurrency
+  int loops = 1;               // event loops; 0 = hardware_concurrency
   std::string root = "webroot";
   int max_conns = 10000;
   int idle_s = 30;
@@ -53,45 +54,71 @@ struct Completion {
   size_t body_len;
 };
 
-class Server {
+class Server;
+
+// One epoll event loop. Owns its connections outright: no other loop ever
+// touches them, and workers only reach it through push_completion().
+class Loop {
  public:
-  explicit Server(Options o) : opt_(std::move(o)) {}
-  int run();            // runs the event loop on the calling thread until request_stop()
-  void request_stop();  // async-signal-safe
+  explicit Loop(Server& s) : s_(s) {}
+  ~Loop();
+  Loop(const Loop&) = delete;
+  Loop& operator=(const Loop&) = delete;
+  bool init();
+  void run();                             // until the server stops
+  void wake();                            // async-signal-safe
+  void push_completion(Completion&& d);   // any thread
+  std::atomic<uint64_t> live{0};          // connections owned by this loop
 
  private:
-  bool setup();
+  bool add_listener();
   void on_accept();
   void pause_accept();
   void resume_accept();
   void on_readable(Conn& c);
   void try_dispatch(Conn& c);
-  void push_completion(Completion&& d);
   void drain_completions();
   void on_completion(Completion&& d);
   void flush_write(Conn& c);
   void update_interest(Conn& c);
   void close_conn(int fd);
   void sweep_idle();
+  Conn* conn(int fd) { return fd >= 0 && static_cast<size_t>(fd) < conns_.size() ? conns_[fd].get() : nullptr; }
+
+  Server& s_;
+  std::vector<std::unique_ptr<Conn>> conns_;  // indexed by fd
+  std::vector<char> rd_;                      // shared recv buffer
+  int epfd_ = -1, wakefd_ = -1;
+  bool accept_paused_ = false;
+  uint64_t next_gen_ = 1;
+  std::mutex cq_mu_;
+  std::vector<Completion> cq_;
+  std::chrono::steady_clock::time_point last_sweep_;
+};
+
+class Server {
+ public:
+  explicit Server(Options o) : opt_(std::move(o)) {}
+  int run();            // runs loop 0 on the calling thread, the rest on their own, until request_stop()
+  void request_stop();  // async-signal-safe
+
+ private:
+  friend class Loop;
+  bool setup();
   Response handle(const Request& req);
   Response api(const Request& req);
   void log_access(const Conn& c, int status, size_t bytes);
-  Conn* conn(int fd) { return fd >= 0 && static_cast<size_t>(fd) < conns_.size() ? conns_[fd].get() : nullptr; }
 
   Options opt_;
   std::unique_ptr<LruCache> cache_;
   std::unique_ptr<FileServer> files_;
   std::unique_ptr<RateLimiter> limiter_;
-  std::unique_ptr<ThreadPool> pool_;  // declared after what its jobs use
-  std::vector<std::unique_ptr<Conn>> conns_;  // indexed by fd
-  std::vector<char> rd_;                      // shared recv buffer
-  int epfd_ = -1, lfd_ = -1, wakefd_ = -1;
-  bool accept_paused_ = false;
-  uint64_t next_gen_ = 1;
+  std::vector<std::unique_ptr<Loop>> loops_;  // reserved up front, never reallocated
+  std::atomic<size_t> nloops_{0};             // how many of loops_ request_stop may wake
+  std::unique_ptr<ThreadPool> pool_;          // declared after what its jobs use
+  int lfd_ = -1;
   std::atomic<bool> stop_{false};
-  std::mutex cq_mu_;
-  std::vector<Completion> cq_;
   FILE* log_ = nullptr;
-  std::chrono::steady_clock::time_point started_, last_sweep_;
+  std::chrono::steady_clock::time_point started_;
   std::atomic<uint64_t> live_{0}, requests_total_{0}, requests_limited_{0};
 };
